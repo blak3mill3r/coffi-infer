@@ -74,23 +74,17 @@
 
 ;; NOTE:(Blake) Joshua pointed out that it's silly to have clang_ prefix on all of these
 
-(defcfn get-c-string
-  "Get the string contents out of a CXString"
-  clang_getCString
-  [[::mem/raw ::cxstring-raw]]
-  ::mem/c-string)
+(def get-c-string
+  (ffi/make-downcall 'clang_getCString [::cxstring-raw] ::mem/c-string))
 
-(defcfn dispose-string
-  "Free the memory in a CXString"
-  clang_disposeString
-  [[::mem/raw ::cxstring-raw]]
-  ::mem/void)
+(def dispose-string
+  (ffi/make-downcall 'clang_disposeString [::cxstring-raw] ::mem/void))
 
 (defmethod mem/deserialize-from
   ::cxstring
   [segment _type]
   (try
-    (get-c-string segment)
+    (mem/deserialize* (get-c-string segment) ::mem/c-string)
     (finally
       (dispose-string segment))))
 
@@ -105,7 +99,7 @@
   "The source location of a cursor"
   clang_getCursorLocation
   [::cursor]
-  [::mem/raw ::source-location])
+  ::source-location)
 
 (defcfn get-cursor-kind
   "Retrieve the kind of the given cursor."
@@ -157,7 +151,7 @@
 (defcfn location-is-from-main-file?
   "Is the location from the main file of the translation unit?"
   clang_Location_isFromMainFile
-  [[::mem/raw ::source-location ]]
+  [::source-location]
   ::mem/int
   ;; symbol to represent the native c function (in case we wanted to recur)
   location-is-from-main-file-native-fn
