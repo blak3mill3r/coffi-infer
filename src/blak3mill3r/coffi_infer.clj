@@ -23,6 +23,23 @@
    ::mem/int]
   ::mem/pointer)
 
+(defcfn dispose-index
+  "Clean up (must dispose all TUs within this index prior to disposing the index)"
+  clang_disposeIndex
+  [::mem/pointer]
+  ::mem/void)
+
+(defrecord Index
+    [native]
+  java.io.Closeable
+  (close [this]
+    (dispose-index native)))
+
+(defn clang-index
+  "Construct and wrap a clang Index"
+  [a b]                                 ;; FIXME what are these flags?
+  (->Index (create-index a b)))
+
 (defcfn create-translation-unit-from-source-file
   "Return the CXTranslationUnit for a given source file and the provided command line arguments one would pass to the compiler."
   clang_createTranslationUnitFromSourceFile
@@ -34,12 +51,32 @@
    ::mem/pointer] ;; a pointer to the unsaved file structs
   ::mem/pointer)
 
+(defcfn dispose-translation-unit
+  "Clean up"
+  clang_disposeTranslationUnit
+  [::mem/pointer]
+  ::mem/void)
+
+(defrecord TranslationUnit [native]
+  java.io.Closeable
+  (close [this]
+    (dispose-translation-unit native)))
+
+(defn tu-from-source-file
+  [index filename]
+  (->TranslationUnit
+   (create-translation-unit-from-source-file
+    index filename
+    ;;2 (mem/address-of (mem/serialize ["-mthread-model" "single"] [::mem/array ::mem/c-string 2]))
+    0 jdk.incubator.foreign.MemoryAddress/NULL
+    0 jdk.incubator.foreign.MemoryAddress/NULL)))
+
 (defalias ::cursor
   (layout/with-c-layout
     [::mem/struct
      [[:kind ::mem/int]
       [:xdata ::mem/int]
-      [:data [::mem/array ::mem/pointer 3]]]] ))
+      [:data [::mem/array ::mem/pointer 3]]]]))
 
 (defalias ::source-location
   (layout/with-c-layout
@@ -108,18 +145,20 @@
   ;; the actual size of the enum type is potentially compiler-dependent, I believe 2 bytes is correct for CursorKind but I should check
   ::mem/short)
 
-(def my-index (delay (create-index 0 0)))
+(defmacro with-index [[symbol] & body]
+  `(let [~symbol (create-index 1 1)]
+     ~@body
+     (dispose-index ~symbol)))
 
-(def my-tu
-  (delay
-    (create-translation-unit-from-source-file
-     @my-index "include/try.hpp"
-     0 jdk.incubator.foreign.MemoryAddress/NULL
-     0 jdk.incubator.foreign.MemoryAddress/NULL)))
-
-(def my-tu-cursor
-  (delay
-    (get-translation-unit-cursor @my-tu)))
+(defmacro with-tu-from-file [index filename [symbol] & body]
+  `(let [~symbol
+         (create-translation-unit-from-source-file
+          ~index ~filename
+        ;;2 (mem/address-of (mem/serialize ["-mthread-model" "single"] [::mem/array ::mem/c-string 2]))
+          0 jdk.incubator.foreign.MemoryAddress/NULL
+          0 jdk.incubator.foreign.MemoryAddress/NULL)]
+     ~@body
+     (dispose-translation-unit ~symbol)))
 
 (defcfn visit-children
   "Visit the children of a particular cursor.
@@ -136,18 +175,6 @@
   [::cursor]
   ::cxstring)
 
-#_(defn do-it []
-  (println "Calling visit-children...")
-  (flush)
-  (visit-children
-   @my-tu-cursor
-   (fn visit [cursor parent user-data]
-     (when-not (zero? (location-is-from-main-file? (cursor-location cursor)))
-       (println (cursor-kind-enum (long (:kind cursor)) (:kind cursor)))
-       (println cursor))
-     (int 2))
-   jdk.incubator.foreign.MemoryAddress/NULL))
-
 (defcfn location-is-from-main-file?
   "Is the location from the main file of the translation unit?"
   clang_Location_isFromMainFile
@@ -162,33 +189,28 @@
 (defn my-visitor [cursor parent user-data]
   (try
     (if (-> cursor cursor-location location-is-from-main-file?)
-      (int 0)
-      (int 1))
-    )
-  #_(try
-    (if (-> cursor cursor-location location-is-from-main-file?)
       (do (println (cursor-kind-enum (:kind cursor) (:kind cursor)))
           (println (cursor-spelling cursor))
           (case (cursor-kind-enum (:kind cursor))
             ::struct-decl
             (int 2)
-            (int 1)) )
+            (int 1)))
       (int 1))
     (catch Exception e
       (println "Caught, ignore: " e)
       (st/print-stack-trace e)
       (int 0))))
 
-;; clang_Location_isFromMainFile
-
 (defn go []
-  (visit-children
-   @my-tu-cursor
-   my-visitor
-   jdk.incubator.foreign.MemoryAddress/NULL))
+  (with-open [idx (clang-index 1 1)]
+    (with-open [tu (tu-from-source-file (:native idx) "include/try.hpp")]
+      (visit-children (get-translation-unit-cursor (:native tu))
+                      my-visitor
+                      jdk.incubator.foreign.MemoryAddress/NULL))))
 
 (comment
   #_(def main-class-loader @clojure.lang.Compiler/LOADER)
+  (go)
 
 
   

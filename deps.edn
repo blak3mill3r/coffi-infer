@@ -1,8 +1,11 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.10.3"}
-        io.github.IGJoshua/coffi {:local/root "/home/blake/w/coffi"}}
+        io.github.IGJoshua/coffi {:local/root "../coffi"}}
  :aliases
  {:dev {:jvm-opts ["--add-modules=jdk.incubator.foreign" "--enable-native-access=ALL-UNNAMED"
+                   ;; TODO:(Blake) gross
+                   ;; joshua suggested .dir-locals.el
+                   ;; I would like libclang to be on the system load path
                    "-Djava.library.path=/usr/lib/llvm-14/lib"]}
   :test {:extra-paths ["test"]
          :extra-deps {org.clojure/test.check {:mvn/version "1.1.0"}}}
